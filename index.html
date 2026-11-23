@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dịch tiếng Hmong</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:#f6f3ee; color:#1f2a37;
+         font:17px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 12px; }
+  .card { background:#fff; border:1px solid #ddd6cc; border-radius:12px;
+          padding:14px; margin-bottom:12px; }
+  .bar, .row { display:flex; gap:8px; margin-bottom:10px; }
+  select, textarea, button { font:inherit; font-size:16px; }
+  select { flex:1; min-width:0; padding:10px; border:1px solid #ddd6cc;
+           border-radius:10px; background:#fff; }
+  textarea { width:100%; min-height:120px; padding:10px;
+             border:1px solid #ddd6cc; border-radius:10px; }
+  button { padding:11px 16px; border:1px solid #ddd6cc; border-radius:10px; background:#fff; }
+  button.primary { flex:1; background:#7a1f3d; border-color:#7a1f3d; color:#fff; font-weight:600; }
+  button:disabled { opacity:.5; }
+  #out { min-height:80px; white-space:pre-wrap; word-break:break-word; }
+  #status { color:#6b7280; font-size:.9rem; margin-top:8px; }
+  #status.err { color:#b42318; }
+  .note { font-size:.85rem; color:#6b7280; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dịch tiếng Hmong</h1>
+
+  <div class="card">
+    <div class="bar">
+      <select id="src"></select>
+      <button id="swap">⇄</button>
+      <select id="dst"></select>
+    </div>
+    <textarea id="inp" placeholder="Nhập văn bản cần dịch..."></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="go">Dịch</button>
+      <button id="clear">Xóa</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="out"></div>
+    <div class="row" style="margin-top:10px"><button id="copy">Sao chép</button></div>
+    <div id="status"></div>
+  </div>
+
+  <p class="note">Dịch máy không thể đúng 100%. Văn bản quan trọng cần người Hmong bản ngữ kiểm tra lại.</p>
+</main>
+
+<script>
+const LANGS = [["hmn","Tiếng Hmong"],["vi","Tiếng Việt"],["en","English"],
+               ["zh-CN","中文"],["lo","ລາວ"],["th","ไทย"]];
+const $ = id => document.getElementById(id);
+const src = $("src"), dst = $("dst"), status = $("status");
+
+LANGS.forEach(([c,n]) => { src.add(new Option(n,c)); dst.add(new Option(n,c)); });
+src.value = "hmn"; dst.value = "vi";
+
+function setStatus(m, err) { status.textContent = m; status.className = err ? "err" : ""; }
+
+$("swap").onclick = () => {
+  const t = src.value; src.value = dst.value; dst.value = t;
+  if ($("out").textContent) { $("inp").value = $("out").textContent; $("out").textContent = ""; }
+};
+$("clear").onclick = () => { $("inp").value = ""; $("out").textContent = ""; setStatus(""); };
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("out").textContent); setStatus("Đã sao chép."); }
+  catch(e) { setStatus("Hãy nhấn giữ văn bản để sao chép.", true); }
+};
+
+$("go").onclick = async () => {
+  const q = $("inp").value.trim();
+  if (!q) return setStatus("Hãy nhập văn bản.", true);
+  if (src.value === dst.value) return setStatus("Hai ngôn ngữ đang giống nhau.", true);
+
+  setStatus("Đang dịch...");
+  $("go").disabled = true;
+  try {
+    const url = "https://translate.googleapis.com/translate_a/single?client=gtx"
+      + "&sl=" + src.value + "&tl=" + dst.value + "&dt=t&q=" + encodeURIComponent(q);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Lỗi " + res.status);
+    const data = await res.json();
+    $("out").textContent = data[0].map(s => s[0]).join("");
+    setStatus("Xong.");
+  } catch (e) {
+    setStatus("Không dịch được: " + e.message + ". Hãy thử lại sau.", true);
+  } finally {
+    $("go").disabled = false;
+  }
+};
+</script>
+</body>
+</html>

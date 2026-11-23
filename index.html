@@ -20,6 +20,7 @@
              border:1px solid #ddd6cc; border-radius:10px; }
   button { padding:11px 16px; border:1px solid #ddd6cc; border-radius:10px; background:#fff; }
   button.primary { flex:1; background:#7a1f3d; border-color:#7a1f3d; color:#fff; font-weight:600; }
+  button.rec { background:#b42318; border-color:#b42318; color:#fff; }
   button:disabled { opacity:.5; }
   #out { min-height:80px; white-space:pre-wrap; word-break:break-word; }
   #status { color:#6b7280; font-size:.9rem; margin-top:8px; }
@@ -37,8 +38,9 @@
       <button id="swap">⇄</button>
       <select id="dst"></select>
     </div>
-    <textarea id="inp" placeholder="Nhập văn bản cần dịch..."></textarea>
+    <textarea id="inp" placeholder="Nhập hoặc bấm 🎤 để nói..."></textarea>
     <div class="row" style="margin-top:10px">
+      <button id="mic">🎤 Nói</button>
       <button class="primary" id="go">Dịch</button>
       <button id="clear">Xóa</button>
     </div>
@@ -50,35 +52,31 @@
     <div id="status"></div>
   </div>
 
-  <p class="note">Dịch máy không thể đúng 100%. Văn bản quan trọng cần người Hmong bản ngữ kiểm tra lại.</p>
+  <p class="note">Micro nhận được tiếng Việt, Anh, Trung, Thái. Tiếng Hmong thì micro iPhone chưa nhận được. Dịch máy không thể đúng 100%, văn bản quan trọng cần người Hmong bản ngữ kiểm tra lại.</p>
 </main>
 
 <script>
-const LANGS = [["hmn","Tiếng Hmong"],["vi","Tiếng Việt"],["en","English"],
-               ["zh-CN","中文"],["lo","ລາວ"],["th","ไทย"]];
+// [mã dịch, tên, mã nhận giọng nói (null = không hỗ trợ)]
+const LANGS = [
+  ["vi","Tiếng Việt","vi-VN"],
+  ["hmn","Tiếng Hmong",null],
+  ["en","English","en-US"],
+  ["zh-CN","中文","zh-CN"],
+  ["th","ไทย","th-TH"],
+  ["lo","ລາວ",null]
+];
 const $ = id => document.getElementById(id);
 const src = $("src"), dst = $("dst"), status = $("status");
 
 LANGS.forEach(([c,n]) => { src.add(new Option(n,c)); dst.add(new Option(n,c)); });
-src.value = "hmn"; dst.value = "vi";
+src.value = "vi"; dst.value = "hmn";
 
 function setStatus(m, err) { status.textContent = m; status.className = err ? "err" : ""; }
 
-$("swap").onclick = () => {
-  const t = src.value; src.value = dst.value; dst.value = t;
-  if ($("out").textContent) { $("inp").value = $("out").textContent; $("out").textContent = ""; }
-};
-$("clear").onclick = () => { $("inp").value = ""; $("out").textContent = ""; setStatus(""); };
-$("copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("out").textContent); setStatus("Đã sao chép."); }
-  catch(e) { setStatus("Hãy nhấn giữ văn bản để sao chép.", true); }
-};
-
-$("go").onclick = async () => {
+async function translate() {
   const q = $("inp").value.trim();
-  if (!q) return setStatus("Hãy nhập văn bản.", true);
+  if (!q) return setStatus("Hãy nhập hoặc nói văn bản.", true);
   if (src.value === dst.value) return setStatus("Hai ngôn ngữ đang giống nhau.", true);
-
   setStatus("Đang dịch...");
   $("go").disabled = true;
   try {
@@ -94,6 +92,61 @@ $("go").onclick = async () => {
   } finally {
     $("go").disabled = false;
   }
+}
+
+// ---- Nhận giọng nói ----
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+
+$("mic").onclick = () => {
+  if (listening && rec) { rec.stop(); return; }
+  if (!SR) return setStatus("Trình duyệt này không hỗ trợ nói vào trang. Hãy dùng micro trên bàn phím iPhone.", true);
+  const lang = (LANGS.find(l => l[0] === src.value) || [])[2];
+  if (!lang) return setStatus("Micro chưa nhận được ngôn ngữ nguồn này. Hãy chọn tiếng Việt làm ngôn ngữ nguồn.", true);
+
+  rec = new SR();
+  rec.lang = lang;
+  rec.interimResults = true;
+  rec.continuous = false;
+  let finalText = "";
+
+  rec.onstart = () => {
+    listening = true;
+    $("mic").textContent = "⏹ Dừng"; $("mic").classList.add("rec");
+    setStatus("Đang nghe... hãy nói.");
+  };
+  rec.onresult = e => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += t; else interim += t;
+    }
+    $("inp").value = (finalText + interim).trim();
+  };
+  rec.onerror = e => {
+    const msg = e.error === "not-allowed" || e.error === "service-not-allowed"
+      ? "Bạn cần cho phép micro (Cài đặt > Safari > Micro) và bật Đọc chính tả (Cài đặt > Cài đặt chung > Bàn phím)."
+      : e.error === "no-speech" ? "Không nghe thấy giọng nói, hãy thử lại."
+      : "Lỗi micro: " + e.error;
+    setStatus(msg, true);
+  };
+  rec.onend = () => {
+    listening = false;
+    $("mic").textContent = "🎤 Nói"; $("mic").classList.remove("rec");
+    if ($("inp").value.trim()) translate();
+  };
+  rec.start();
+};
+
+$("go").onclick = translate;
+$("swap").onclick = () => {
+  const t = src.value; src.value = dst.value; dst.value = t;
+  if ($("out").textContent) { $("inp").value = $("out").textContent; $("out").textContent = ""; }
+};
+$("clear").onclick = () => { $("inp").value = ""; $("out").textContent = ""; setStatus(""); };
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("out").textContent); setStatus("Đã sao chép."); }
+  catch(e) { setStatus("Hãy nhấn giữ văn bản để sao chép.", true); }
 };
 </script>
 </body>
